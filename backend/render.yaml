@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: task-manager-backend
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: node dist/server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+    region: frankfurt  # EU region for better latency from India
+    autoDeploy: true

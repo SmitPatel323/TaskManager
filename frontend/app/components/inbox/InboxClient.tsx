@@ -1,27 +1,32 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState, useEffect } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useMemo, useState } from "react";
 import { inboxApi, type InboxMessage } from "../../../src/api/inbox.api";
+import {
+  EnvelopeIcon,
+  EnvelopeOpenIcon,
+  TrashIcon,
+  CheckIcon,
+  BellAlertIcon,
+  ClockIcon,
+} from "@heroicons/react/24/outline";
 
+type InboxFilter = "unread" | "read";
 
 export default function InboxClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [expandedMessages, setExpandedMessages] = useState<Set<string>>(new Set());
-  const [activeFilter, setActiveFilter] = useState<"all" | "tasks" | "mention" | "comment_reply">("all");
-  const [replyText, setReplyText] = useState<{ [key: string]: string }>({});
+  const [filter, setFilter] = useState<InboxFilter>("unread");
   const queryClient = useQueryClient();
 
-  // Fetch inbox messages with filter
   const { data: inboxData, isLoading } = useQuery({
-    queryKey: ["inbox-messages", activeFilter],
-    queryFn: () => inboxApi.getMessages(100, 0, activeFilter),
-    staleTime: 30 * 1000, // Refresh every 30 seconds
+    queryKey: ["inbox-messages"],
+    queryFn: () => inboxApi.getMessages(100, 0),
+    staleTime: 30 * 1000,
   });
 
-  // Mark as read mutation
   const markAsReadMutation = useMutation({
     mutationFn: (messageId: string) => inboxApi.markMessageAsRead(messageId),
     onSuccess: () => {
@@ -29,7 +34,6 @@ export default function InboxClient() {
     },
   });
 
-  // Mark all as read mutation
   const markAllAsReadMutation = useMutation({
     mutationFn: () => inboxApi.markAllAsRead(),
     onSuccess: () => {
@@ -37,7 +41,6 @@ export default function InboxClient() {
     },
   });
 
-  // Delete message mutation
   const deleteMessageMutation = useMutation({
     mutationFn: (messageId: string) => inboxApi.deleteMessage(messageId),
     onSuccess: () => {
@@ -57,17 +60,23 @@ export default function InboxClient() {
 
   const messages = inboxData?.messages || [];
   const unreadCount = inboxData?.unreadCount || 0;
+  const readCount = Math.max(messages.length - unreadCount, 0);
+
+  const visibleMessages = useMemo(() => {
+    if (filter === "unread") return messages.filter((m) => !m.isRead);
+    return messages.filter((m) => m.isRead);
+  }, [filter, messages]);
 
   const getStatusBadgeColor = (status: string | undefined) => {
     switch (status) {
       case "to-do":
-        return "bg-gray-100 text-gray-800";
+        return "bg-[var(--bg-surface-2)] text-[var(--text-secondary)] border border-[var(--border-subtle)]";
       case "in-progress":
-        return "bg-blue-100 text-blue-800";
+        return "bg-blue-500/10 text-blue-500 border border-blue-500/30";
       case "completed":
-        return "bg-green-100 text-green-800";
+        return "bg-emerald-500/10 text-emerald-500 border border-emerald-500/30";
       default:
-        return "bg-gray-100 text-gray-800";
+        return "bg-[var(--bg-surface-2)] text-[var(--text-secondary)] border border-[var(--border-subtle)]";
     }
   };
 
@@ -75,15 +84,17 @@ export default function InboxClient() {
     switch (type) {
       case "task-assigned":
         return "📌";
-      case "task-status-changed":
-        return "✅";
-      case "mention":
-        return "@";
-      case "comment_reply":
-        return "💬";
       default:
         return "📧";
     }
+  };
+
+  const senderInitials = (message: InboxMessage) => {
+    if (!message.senderId) return "U";
+    const first = message.senderId.firstName?.charAt(0) || "";
+    const last = message.senderId.lastName?.charAt(0) || "";
+    const initials = `${first}${last}`.toUpperCase();
+    return initials || "U";
   };
 
   const toggleExpanded = (messageId: string) => {
@@ -92,7 +103,6 @@ export default function InboxClient() {
       newExpanded.delete(messageId);
     } else {
       newExpanded.add(messageId);
-      // Mark as read when expanded
       if (!messages.find((m) => m._id === messageId)?.isRead) {
         markAsReadMutation.mutate(messageId);
       }
@@ -145,32 +155,74 @@ export default function InboxClient() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-full text-[var(--text-muted)]">
-        <div className="animate-spin">⏳</div>
+      <div className="flex flex-col h-full bg-[var(--bg-canvas)]">
+        <div className="px-4 sm:px-6 pt-4 sm:pt-5 pb-3 border-b border-[var(--border-subtle)]">
+          <div className="h-7 w-40 rounded-md bg-[var(--bg-surface-2)] animate-pulse" />
+          <div className="h-4 w-64 rounded-md bg-[var(--bg-surface-2)] animate-pulse mt-2" />
+        </div>
+        <div className="p-4 sm:p-6 space-y-3">
+          {Array.from({ length: 5 }).map((_, idx) => (
+            <div
+              key={idx}
+              className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4"
+            >
+              <div className="h-4 w-48 rounded bg-[var(--bg-surface-2)] animate-pulse" />
+              <div className="h-3 w-full rounded bg-[var(--bg-surface-2)] animate-pulse mt-3" />
+              <div className="h-3 w-4/5 rounded bg-[var(--bg-surface-2)] animate-pulse mt-2" />
+            </div>
+          ))}
+        </div>
       </div>
     );
   }
 
   return (
     <div className="flex flex-col h-full bg-[var(--bg-canvas)]">
-      {/* Inbox Header */}
-      <div className="border-b border-[var(--border-default)] bg-[var(--bg-secondary)] px-6 py-4">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h1 className="text-lg font-semibold text-[var(--text-primary)]">Inbox</h1>
-            <p className="text-sm text-[var(--text-muted)] mt-1">
-              {messages.length} message{messages.length !== 1 ? "s" : ""} ({unreadCount} unread)
-            </p>
+      <div className="border-b border-[var(--border-subtle)] px-4 sm:px-6 pt-4 sm:pt-5 pb-4 bg-[var(--bg-canvas)]">
+        <div className="flex flex-col gap-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-[var(--bg-surface-2)] border border-[var(--border-subtle)] flex items-center justify-center">
+                  <BellAlertIcon className="w-4 h-4 text-[var(--ck-blue)]" />
+                </div>
+                <h1 className="text-[18px] sm:text-[20px] font-semibold text-[var(--text-primary)]">Inbox</h1>
+              </div>
+              <p className="text-[12px] sm:text-[13px] text-[var(--text-secondary)] mt-2">
+                Stay on top of task assignments and status updates.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[12px] text-[var(--text-secondary)]">
+                <ClockIcon className="w-3.5 h-3.5" />
+                Auto refresh: 30s
+              </div>
+
+              {unreadCount > 0 && (
+                <button
+                  onClick={() => markAllAsReadMutation.mutate()}
+                  disabled={markAllAsReadMutation.isPending}
+                  className="px-3 py-1.5 rounded-lg bg-[var(--ck-blue)]/10 text-[var(--ck-blue)] hover:bg-[var(--ck-blue)]/20 text-[12px] font-medium transition-colors disabled:opacity-50"
+                >
+                  {markAllAsReadMutation.isPending ? "Marking..." : "Mark all read"}
+                </button>
+              )}
+            </div>
           </div>
-          {unreadCount > 0 && (
-            <button
-              onClick={() => markAllAsReadMutation.mutate()}
-              disabled={markAllAsReadMutation.isPending}
-              className="px-4 py-2 rounded-lg bg-blue-500/10 text-blue-500 hover:bg-blue-500/20 text-sm font-medium transition-colors disabled:opacity-50"
-            >
-              {markAllAsReadMutation.isPending ? "Marking..." : "Mark all as read"}
-            </button>
-          )}
+
+          <div className="inline-flex items-center p-1 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] w-fit">
+            <FilterChip
+              label={`Unread (${unreadCount})`}
+              active={filter === "unread"}
+              onClick={() => setFilter("unread")}
+            />
+            <FilterChip
+              label={`Read (${readCount})`}
+              active={filter === "read"}
+              onClick={() => setFilter("read")}
+            />
+          </div>
         </div>
 
         {/* Filter Tabs */}
@@ -194,27 +246,22 @@ export default function InboxClient() {
         </div>
       </div>
 
-      {/* Messages List */}
-      <div className="flex-1 overflow-y-auto">
-        {messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-[var(--text-muted)]">
-            <i className="pi pi-envelope text-5xl mb-3 opacity-50" />
-            <p className="text-base">
-              {activeFilter === "all" && "No messages yet"}
-              {activeFilter === "tasks" && "No task notifications"}
-              {activeFilter === "mention" && "No mentions"}
-              {activeFilter === "comment_reply" && "No replies"}
+      <div className="flex-1 overflow-y-auto px-3 sm:px-5 py-4 sm:py-5">
+        {visibleMessages.length === 0 ? (
+          <div className="h-full min-h-[260px] rounded-2xl border border-dashed border-[var(--border-subtle)] bg-[var(--bg-surface)] flex flex-col items-center justify-center text-center px-6">
+            <div className="w-14 h-14 rounded-2xl bg-[var(--bg-surface-2)] border border-[var(--border-subtle)] flex items-center justify-center mb-4">
+              <EnvelopeOpenIcon className="w-7 h-7 text-[var(--text-muted)]" />
+            </div>
+            <p className="text-[15px] font-semibold text-[var(--text-primary)]">
+              {`No ${filter} messages`}
             </p>
-            <p className="text-sm">
-              {activeFilter === "all" && "You will receive notifications about assigned tasks and status updates here."}
-              {activeFilter === "tasks" && "Task assignments and status updates will appear here."}
-              {activeFilter === "mention" && "When someone mentions you, you'll see it here."}
-              {activeFilter === "comment_reply" && "When someone replies to a task comment, you'll see it here."}
+            <p className="text-[12px] sm:text-[13px] text-[var(--text-secondary)] mt-1 max-w-md">
+              You will see task assignment updates, progress changes, and team notifications here.
             </p>
           </div>
         ) : (
-          <div className="divide-y divide-[var(--border-default)]">
-            {messages.map((message) => {
+          <div className="space-y-2.5">
+            {visibleMessages.map((message) => {
               const isExpanded = expandedMessages.has(message._id);
               const isUnread = !message.isRead;
 
@@ -222,39 +269,48 @@ export default function InboxClient() {
                 <div
                   id={`notification-${message._id}`}
                   key={message._id}
-                  className={`border-l-4 transition-colors ${
-                    isUnread ? "border-l-blue-500 bg-blue-500/5" : "border-l-transparent bg-[var(--bg-canvas)]"
-                  }`}
+                  className={`rounded-xl border transition-all ${isUnread
+                      ? "border-[var(--ck-blue)]/40 bg-[var(--ck-blue)]/5"
+                      : "border-[var(--border-subtle)] bg-[var(--bg-surface)]"
+                    }`}
                 >
                   <div
                     onClick={() => toggleExpanded(message._id)}
-                    className="px-6 py-4 cursor-pointer hover:bg-[var(--bg-surface-1)] transition-colors"
+                    className="px-4 sm:px-5 py-4 cursor-pointer hover:bg-[var(--bg-surface-2)]/60 transition-colors"
                   >
                     <div className="flex items-start gap-3">
-                      {/* Icon */}
-                      <div className="text-lg mt-1 flex-shrink-0">{getMessageIcon(message.type)}</div>
+                      {message.type === "task-status-changed" && message.senderId ? (
+                        <div
+                          className="w-9 h-9 rounded-full bg-gray-700 text-white border border-[var(--border-subtle)] flex items-center justify-center text-[11px] font-semibold flex-shrink-0"
+                          title={`${message.senderId.firstName} ${message.senderId.lastName}`}
+                        >
+                          {senderInitials(message)}
+                        </div>
+                      ) : (
+                        <div className="w-9 h-9 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-canvas)] flex items-center justify-center text-[16px] flex-shrink-0">
+                          {getMessageIcon(message.type)}
+                        </div>
+                      )}
 
-                      {/* Content */}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
-                              <h3 className="font-semibold text-[var(--text-primary)]">{message.title}</h3>
+                              <h3 className="font-semibold text-[var(--text-primary)] text-[14px]">{message.title}</h3>
                               {isUnread && (
-                                <div className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0" />
+                                <div className="w-2 h-2 rounded-full bg-[var(--ck-blue)] flex-shrink-0" />
                               )}
                             </div>
-                            <p className="text-sm text-[var(--text-muted)] mt-1 line-clamp-2">{message.message}</p>
+                            <p className="text-[13px] text-[var(--text-secondary)] mt-1 line-clamp-2">{message.message}</p>
 
-                            {/* Task details preview */}
                             <div className="flex items-center gap-2 mt-2 flex-wrap">
-                              <span className="px-2 py-1 rounded bg-[var(--bg-surface-2)] text-[var(--text-secondary)] text-xs">
+                              <span className="px-2 py-1 rounded-md bg-[var(--bg-canvas)] border border-[var(--border-subtle)] text-[var(--text-secondary)] text-[11px]">
                                 {message.taskName}
                               </span>
                               {message.type === "task-status-changed" && message.newStatus && (
                                 <>
-                                  <span className="text-xs text-[var(--text-muted)]">→</span>
-                                  <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusBadgeColor(message.newStatus)}`}>
+                                  <span className="text-[11px] text-[var(--text-muted)]">→</span>
+                                  <span className={`px-2 py-1 rounded-md text-[11px] font-medium ${getStatusBadgeColor(message.newStatus)}`}>
                                     {message.newStatus}
                                   </span>
                                 </>
@@ -262,45 +318,43 @@ export default function InboxClient() {
                             </div>
                           </div>
 
-                          {/* Date & Actions */}
                           <div className="flex flex-col items-end gap-2 flex-shrink-0">
-                            <span className="text-xs text-[var(--text-muted)]">{formatDate(message.createdAt)}</span>
+                            <span className="text-[11px] text-[var(--text-muted)]">{formatDate(message.createdAt)}</span>
                             <div className="flex items-center gap-1">
                               {!isUnread && (
                                 <i className="pi pi-envelope-open text-[14px] text-[var(--text-muted)]" />
                               )}
-                              {isUnread && <i className="pi pi-envelope text-[14px] text-[var(--ck-blue)]" />}
+                              {isUnread && <EnvelopeIcon className="w-4 h-4 text-[var(--ck-blue)]" />}
                             </div>
                           </div>
                         </div>
                       </div>
                     </div>
 
-                    {/* Expanded Content */}
                     {isExpanded && (
                       <div className="mt-4 pt-4 border-t border-[var(--border-subtle)] space-y-3">
-                        <div className="bg-[var(--bg-surface-1)] rounded-lg p-3 space-y-2 text-sm">
-                          <p className="text-[var(--text-primary)]">{message.message}</p>
+                        <div className="bg-[var(--bg-canvas)] rounded-lg border border-[var(--border-subtle)] p-3 space-y-2 text-sm">
+                          <p className="text-[var(--text-primary)] leading-relaxed">{message.message}</p>
 
                           {message.type === "task-status-changed" && (
                             <div className="flex items-center gap-2 text-[var(--text-muted)]">
-                              <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusBadgeColor(message.previousStatus)}`}>
+                              <span className={`px-2 py-1 rounded-md text-[11px] font-medium ${getStatusBadgeColor(message.previousStatus)}`}>
                                 {message.previousStatus}
                               </span>
                               <span>→</span>
-                              <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusBadgeColor(message.newStatus)}`}>
+                              <span className={`px-2 py-1 rounded-md text-[11px] font-medium ${getStatusBadgeColor(message.newStatus)}`}>
                                 {message.newStatus}
                               </span>
                             </div>
                           )}
 
                           {message.senderId && (
-                            <div className="text-xs text-[var(--text-muted)]">
+                            <div className="text-[12px] text-[var(--text-muted)]">
                               From: <strong>{message.senderId.firstName} {message.senderId.lastName}</strong> ({message.senderId.email})
                             </div>
                           )}
 
-                          <div className="text-xs text-[var(--text-muted)]">
+                          <div className="text-[11px] text-[var(--text-muted)]">
                             {new Date(message.createdAt).toLocaleString("en-US", {
                               month: "short",
                               day: "numeric",
@@ -311,7 +365,6 @@ export default function InboxClient() {
                           </div>
                         </div>
 
-                        {/* Action buttons */}
                         <div className="flex gap-2 pt-2">
                           {activeFilter !== "all" && isUnread && (
                             <button
@@ -320,37 +373,23 @@ export default function InboxClient() {
                                 markAsReadMutation.mutate(message._id);
                               }}
                               disabled={markAsReadMutation.isPending}
-                              className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-green-500/10 text-green-600 hover:bg-green-500/20 text-xs font-medium transition-colors disabled:opacity-50"
+                              className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 text-[12px] font-medium transition-colors disabled:opacity-50"
                             >
                               <i className="pi pi-check" />
                               Mark as read
                             </button>
                           )}
-                          {activeFilter !== "all" && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                deleteMessageMutation.mutate(message._id);
-                              }}
-                              disabled={deleteMessageMutation.isPending}
-                              className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-red-500/10 text-red-600 hover:bg-red-500/20 text-xs font-medium transition-colors disabled:opacity-50"
-                            >
-                              <i className="pi pi-trash" />
-                              Delete
-                            </button>
-                          )}
-                          {(message.type === "task-assigned" || message.type === "task-status-changed") && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleNavigateToTask(message);
-                              }}
-                              className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-blue-500/10 text-blue-600 hover:bg-blue-500/20 text-xs font-medium transition-colors"
-                            >
-                              <i className="pi pi-arrow-right" />
-                              View Task
-                            </button>
-                          )}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteMessageMutation.mutate(message._id);
+                            }}
+                            disabled={deleteMessageMutation.isPending}
+                            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500/20 text-[12px] font-medium transition-colors disabled:opacity-50"
+                          >
+                            <TrashIcon className="w-4 h-4" />
+                            Delete
+                          </button>
                         </div>
 
                         {/* Replies Section - Only for comment replies, not in "all" section or mentions */}
@@ -413,5 +452,19 @@ export default function InboxClient() {
         )}
       </div>
     </div>
+  );
+}
+
+function FilterChip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`px-3 py-1.5 rounded-lg text-[12px] font-medium transition-colors ${active
+          ? "bg-[var(--bg-canvas)] text-[var(--text-primary)] border border-[var(--border-subtle)]"
+          : "bg-transparent text-[var(--text-secondary)] border border-transparent hover:text-[var(--text-primary)]"
+        }`}
+    >
+      {label}
+    </button>
   );
 }

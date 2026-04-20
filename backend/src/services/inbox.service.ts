@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import { InboxModel, NotificationType, TaskStatusNotificationType } from "../models/inbox.model.js";
+import { InboxModel, TaskStatusNotificationType } from "../models/inbox.model.js";
 import { EmailService } from "./email.service.js";
 import { emitNotification } from "../infrastructure/socket.js";
 
@@ -49,7 +49,7 @@ export class InboxService {
                 message: `${senderName} has assigned you the task "${taskName}"`,
                 isRead: false,
                 createdAt: new Date(),
-            });
+            } as any);
 
             // Emit real-time notification via Socket.IO
             emitNotification(assignedToUserId, {
@@ -64,12 +64,19 @@ export class InboxService {
             });
 
             // Send email notification
-            await this.emailService.sendTaskAssignmentNotification(
-                assignedUser.email,
-                `${assignedUser.firstName} ${assignedUser.lastName}`,
-                taskName,
-                senderName
-            );
+            const assigneeEmail =
+                typeof assignedUser.email === "string" && assignedUser.email.trim().length > 0
+                    ? assignedUser.email.trim()
+                    : null;
+
+            if (assigneeEmail) {
+                await this.emailService.sendTaskAssignmentNotification(
+                    assigneeEmail,
+                    `${assignedUser.firstName} ${assignedUser.lastName}`,
+                    taskName,
+                    senderName
+                );
+            }
         } catch (error) {
             console.error("Error notifying task assignment:", error);
             // Don't throw - we don't want to fail task creation if notification fails
@@ -144,7 +151,7 @@ export class InboxService {
                 newStatus,
                 isRead: false,
                 createdAt: new Date(),
-            });
+            } as any);
 
             // Emit real-time notification via Socket.IO
             emitNotification(notificationRecipientId, {

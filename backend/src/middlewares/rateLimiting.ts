@@ -1,4 +1,4 @@
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 
 /**
  * General API rate limiter
@@ -37,7 +37,7 @@ export const startCallLimiter = rateLimit({
     keyGenerator: (req) => {
         // Use user ID if authenticated, otherwise fall back to IP with proper IPv6 handling
         const userId = (req as any).user?.userId;
-        return userId ? `start-call-${userId}` : `start-call-${req.ip}`;
+        return userId ? `start-call-${userId}` : `start-call-${ipKeyGenerator(req.ip || '')}`;
     },
     message: {
         error: 'Too many calls started. Maximum 10 calls per hour.',
@@ -57,7 +57,7 @@ export const joinCallLimiter = rateLimit({
     //
     keyGenerator: (req) => {
         const userId = (req as any).user?.userId;
-        return userId ? `join-call-${userId}` : `join-call-${req.ip}`;
+        return userId ? `join-call-${userId}` : `join-call-${ipKeyGenerator(req.ip || '')}`;
     },
     message: {
         error: 'Too many join attempts. Maximum 20 per hour.',
@@ -77,7 +77,7 @@ export const getCallInfoLimiter = rateLimit({
     //
     keyGenerator: (req) => {
         const userId = (req as any).user?.userId;
-        return userId ? `call-info-${userId}` : `call-info-${req.ip}`;
+        return userId ? `call-info-${userId}` : `call-info-${ipKeyGenerator(req.ip || '')}`;
     },
     message: {
         error: 'Too many call info requests. Maximum 60 per minute.',
@@ -97,7 +97,7 @@ export const enableRecordingLimiter = rateLimit({
     //
     keyGenerator: (req) => {
         const userId = (req as any).user?.userId;
-        return userId ? `recording-${userId}` : `recording-${req.ip}`;
+        return userId ? `recording-${userId}` : `recording-${ipKeyGenerator(req.ip || '')}`;
     },
     message: {
         error: 'Too many recording requests. Maximum 10 per hour.',
@@ -117,7 +117,7 @@ export const endCallLimiter = rateLimit({
     //
     keyGenerator: (req) => {
         const userId = (req as any).user?.userId;
-        return userId ? `end-call-${userId}` : `end-call-${req.ip}`;
+        return userId ? `end-call-${userId}` : `end-call-${ipKeyGenerator(req.ip || '')}`;
     },
     message: {
         error: 'Too many end call requests. Maximum 10 per hour.',

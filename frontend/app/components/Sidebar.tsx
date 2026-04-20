@@ -6,13 +6,11 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import axios from "axios";
 import { authApi } from "../../src/api/auth.api";
 import { channelsApi } from "../../src/api/channels.api";
+import { inboxApi } from "../../src/api/inbox.api";
 import { projectsApi } from "../../src/api/projects.api";
 import { teamsApi } from "../../src/api/teams.api";
 import { useNotifications } from "../hooks/useNotifications";
 import { SkeletonSidebarItems } from "./Skeleton";
-import { useCall } from "../providers/CallProvider";
-import { AgentAudioVisualizerRadial } from "@/components/agent-audio-visualizer-radial";
-import { Tooltip } from "primereact/tooltip";
 
 /* ─── Types ─────────────────────────────────────────────────── */
 type ChannelMember = { _id: string; firstName: string; lastName: string; email?: string };
@@ -110,21 +108,25 @@ function SectionHeader({
   if (isCollapsed) return <div className="mx-4 my-4 h-px bg-[var(--border-subtle)]" />;
   
   return (
-    <div className="flex items-center justify-between px-2.5 pt-4 pb-1 group">
-      <button onClick={onToggle} className="flex items-center gap-1 flex-1 text-left">
-        <span className="text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-widest">{label}</span>
-        {onToggle && (
-          <i className={`pi pi-chevron-right text-[9px] text-[var(--text-muted)] transition-transform duration-200 ${isOpen ? "rotate-90" : ""}`} />
+    <div
+      className={`flex items-center justify-between px-2 py-1.5 rounded-md transition-all duration-150 group ${active
+        ? "bg-[var(--accent-light)] text-[var(--text-primary)]"
+        : "text-[var(--text-secondary)] hover:bg-[var(--bg-surface-2)] hover:text-[var(--text-primary)]"
+        } ${href ? "cursor-pointer" : ""}`}
+      onClick={handleClick}
+    >
+      <div className="flex items-center gap-2 overflow-hidden flex-1">
+        {icon && (
+          <div className={`flex-shrink-0 ${active ? "text-[var(--text-primary)]" : "text-[var(--text-muted)] group-hover:text-[var(--text-secondary)]"}`}>
+            {icon}
+          </div>
         )}
-      </button>
-      {onAdd && (
-        <button
-          onClick={onAdd}
-          className="opacity-0 group-hover:opacity-100 p-1 rounded-md hover:bg-[var(--nav-hover-bg)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-all"
-          title={`Add ${label}`}
-        >
-          <i className="pi pi-plus text-[11px]" />
-        </button>
+        <span className="truncate text-[12px] font-medium">{label}</span>
+      </div>
+      {rightText && (
+        <span className={`text-[11px] flex-shrink-0 ml-1 ${active ? "text-[var(--text-primary)]" : "text-[var(--text-muted)]"}`}>
+          {rightText}
+        </span>
       )}
     </div>
   );
@@ -136,10 +138,6 @@ export default function Sidebar({ userRole }: SidebarProps) {
   const searchParams = useSearchParams();
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { currentAudioTrack, setCurrentAudioTrack } = useCall();
-  const { unreadCount } = useNotifications();
-
-  /* ── State ── */
   const [user, setUser] = useState<User | null>(null);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
@@ -234,7 +232,15 @@ export default function Sidebar({ userRole }: SidebarProps) {
   });
   const teamUsers = teamUsersData?.data || [];
 
-  /* ── Computed ── */
+  const { data: inboxUnreadData } = useQuery({
+    queryKey: ["inbox-unread-count"],
+    queryFn: inboxApi.getUnreadCount,
+    enabled: !!userRole,
+    staleTime: 15 * 1000,
+    refetchInterval: 30 * 1000,
+  });
+  const unreadInboxCount = inboxUnreadData?.unreadCount || 0;
+
   const normalizedTeamSearch = teamSearch.trim().toLowerCase();
   const filteredTeams = useMemo(() =>
     teams.filter((team: { teamName?: string }) =>
@@ -511,42 +517,20 @@ export default function Sidebar({ userRole }: SidebarProps) {
         </div>
       </div>
 
-      {/* ── Scrollable Content ── */}
-      <div className="flex-1 overflow-y-auto ck-scrollbar px-2 py-2 space-y-0.5">
-        
-        {/* Top Nav (Home, Tasks) */}
-        {topNavItems.map((item) => {
-          const isActive = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href));
-          return (
-            <NavItem key={item.id} icon={item.icon} label={item.label} active={isActive} isCollapsed={isCollapsed}
-              onClick={() => { navigateTo(item.href); onClose?.(); }}
-            />
-          );
-        })}
-
-        {/* Employee Nav Items (My Teams, Projects) */}
-        {employeeNavItems.filter(item => item.id !== "my-teams").map((item) => {
-          const isActive = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href));
-          return (
-            <NavItem key={item.id} icon={item.icon} label={item.label} active={isActive} isCollapsed={isCollapsed}
-              onClick={() => { navigateTo(item.href); onClose?.(); }}
-            />
-          );
-        })}
-
-        {/* Teams Section (Between Tasks and Inbox) */}
-        {(teams.length > 0 || isAdmin) && (
-          <div className="py-1">
-            <SectionHeader label="Teams" onAdd={isAdmin ? openTeamModal : undefined} onToggle={() => setTeamsOpen(v => !v)} isOpen={teamsOpen} isCollapsed={isCollapsed} />
-            {teamsOpen && !isCollapsed && (
-              <div className="space-y-0.5 mt-1">
-                {/* Analytics */}
-                <NavItem 
-                  icon="pi pi-chart-bar" 
-                  label="Analytics" 
-                  active={pathname === "/dashboard/teams"}
-                  onClick={() => { navigateTo("/dashboard/teams"); onClose?.(); }}
-                />
+      {/* Inbox / Quick items */}
+      {[
+        {
+          label: "Inbox",
+          href: "/dashboard/inbox",
+          icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 12h-6l-2 3h-4l-2-3H2" /><path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z" /></svg>,
+          rightText: unreadInboxCount > 0 ? String(unreadInboxCount) : undefined,
+        },
+        { label: "Replies", href: "/dashboard", icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 17 4 12 9 7" /><path d="M20 18v-2a4 4 0 00-4-4H4" /></svg> },
+        { label: "Assigned Comments", href: "/dashboard", icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" /></svg> },
+        { label: "Tasks", href: "/dashboard/tasks", icon: <ClipboardDocumentListIcon className="w-3.5 h-3.5" /> },
+      ].map((item) => (
+        <ContentPanelItem key={item.label} href={item.href} label={item.label} rightText={item.rightText} icon={item.icon} active={pathname === item.href && item.href !== "/dashboard"} onNavigate={navigateTo} />
+      ))}
 
                 <div className="px-2.5 pt-3 pb-1">
                   <span className="text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-widest">My Teams</span>
@@ -574,12 +558,36 @@ export default function Sidebar({ userRole }: SidebarProps) {
                   />
                 ))}
 
-                {canToggleMoreTeams && (
-                  <button onClick={() => setShowAllTeams(v => !v)}
-                    className="w-full text-left px-2.5 py-1 text-[12px] text-[var(--accent)] hover:bg-[var(--nav-hover-bg)] rounded-lg">
-                    {showAllTeams ? "Show less" : "More.."}
-                  </button>
-                )}
+      {isMounted && channelsOpen && (
+        <div className="space-y-0.5 mt-1">
+          {visibleChannels.slice(0, channelsExpanded ? undefined : CHANNEL_SIDEBAR_LIMIT).map((chan) => {
+            const channelId = ((chan as { id?: string; channelId?: string }).id || (chan as { id?: string; channelId?: string }).channelId || "").toLowerCase();
+            const isActive = pathname === `/dashboard/channels/${channelId}`;
+            const isJoined = !!(chan.joined || (!!currentUserId && (chan.joinedMemberIds || []).includes(currentUserId)));
+            const showJoin = !isJoined;
+            return (
+              <div
+                key={channelId || chan.name}
+                className={`flex items-center justify-between px-2 py-1.5 rounded-md transition-all duration-150 group ${isActive
+                  ? "bg-[var(--accent-light)] text-[var(--text-primary)]"
+                  : "text-[var(--text-secondary)] hover:bg-[var(--bg-surface-2)] hover:text-[var(--text-primary)]"
+                  }`}
+              >
+                <button
+                  onClick={() => navigateTo(`/dashboard/channels/${channelId}`)}
+                  className="flex items-center gap-2 overflow-hidden flex-1 min-w-0 text-left"
+                >
+                  <div className={`flex-shrink-0 ${isActive ? "text-[var(--text-primary)]" : "text-[var(--text-muted)] group-hover:text-[var(--text-secondary)]"}`}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 9h16 M4 15h16 M10 3L8 21 M16 3l-2 18" /></svg>
+                  </div>
+                  <span className="truncate text-[12px] font-medium">{chan.name}</span>
+                  {chan.isPrivate && (
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-[var(--text-muted)] flex-shrink-0">
+                      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                    </svg>
+                  )}
+                </button>
 
                 {isAdmin && (
                   <button onClick={() => { openTeamModal(); onClose?.(); }}
@@ -589,9 +597,48 @@ export default function Sidebar({ userRole }: SidebarProps) {
                   </button>
                 )}
               </div>
-            )}
-          </div>
-        )}
+            );
+          })}
+          {visibleChannels.length > CHANNEL_SIDEBAR_LIMIT && (
+            <button
+              onClick={() => setChannelsExpanded(!channelsExpanded)}
+              className="w-full text-left px-2 py-1.5 text-[11px] font-medium text-[var(--text-primary)] hover:bg-[var(--bg-surface-2)] rounded-md transition-colors"
+            >
+              {channelsExpanded ? "Show less" : " More.."}
+            </button>
+          )}
+          <button
+            onClick={openChannelModal}
+            className="flex items-center gap-2 px-2 py-1.5 w-full text-left hover:bg-[var(--bg-surface-2)] rounded-md transition-colors group"
+          >
+            <PlusIcon className="w-3.5 h-3.5 text-[var(--text-tertiary)] group-hover:text-[var(--text-primary)] transition-colors" />
+            <span className="text-[12px] text-[var(--text-tertiary)] group-hover:text-[var(--text-primary)] transition-colors">Add Channel</span>
+          </button>
+
+        </div>
+      )}
+
+      <div className="my-3 border-t border-[var(--border-subtle)]" />
+
+      {/* Spaces section (projects) */}
+      <div className="flex items-center justify-between px-2 py-1">
+        <span className="text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider">Spaces</span>
+      </div>
+
+      <button
+        onClick={() => navigateTo("/dashboard/tasks")}
+        className="w-full flex items-center gap-2 px-2 py-2 rounded-md hover:bg-[var(--bg-surface-2)] transition-colors text-left"
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-[var(--text-muted)]">
+          <path d="M9 6h11" />
+          <path d="M9 12h11" />
+          <path d="M9 18h11" />
+          <path d="M4 6h.01" />
+          <path d="M4 12h.01" />
+          <path d="M4 18h.01" />
+        </svg>
+        <span className="text-[12px] text-[var(--text-secondary)] truncate">All Tasks - {user?.firstName}&apos;s Workspace</span>
+      </button>
 
         {/* Bottom Nav (Inbox, Projects, Users) */}
         {bottomNavItems.map((item) => {
@@ -651,6 +698,35 @@ export default function Sidebar({ userRole }: SidebarProps) {
                     >
                       Join
                     </button>
+                  </div>
+
+                  {teamOpen && (
+                    <div className="ml-4 mt-0.5 border-l border-[var(--border-subtle)]/80 pl-2 space-y-0.5">
+                      {group.projects.slice(0, expandedProjectTeams[group.id] ? undefined : PROJECT_SIDEBAR_LIMIT).map((project, index) => {
+                        const isActive = pathname === "/dashboard/tasks" && searchParams.get("project") === project._id;
+                        return (
+                          <button
+                            key={project._id}
+                            onClick={() => navigateTo(`/dashboard/tasks?project=${project._id}`)}
+                            className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left transition-colors ${isActive ? "bg-[var(--bg-surface-2)]" : "hover:bg-[var(--bg-surface-2)]"}`}
+                          >
+                            {renderProjectListIcon(project.projectName, index)}
+                            <span className={`text-[12px] truncate flex-1 ${isActive ? "text-[var(--text-primary)] font-medium" : "text-[var(--text-secondary)]"}`}>
+                              {project.projectName}
+                            </span>
+                            <span className="text-[12px] text-[var(--text-muted)]">{project.assignedUsers?.length || 0}</span>
+                          </button>
+                        );
+                      })}
+                      {group.projects.length > PROJECT_SIDEBAR_LIMIT && (
+                        <button
+                          onClick={() => toggleProjectTeamExpanded(group.id)}
+                          className="w-full text-left px-2 py-1.5 text-[11px] font-medium text-[var(--text-primary)] hover:bg-[var(--bg-surface-2)] rounded-md transition-colors"
+                        >
+                          {expandedProjectTeams[group.id] ? "Show less" : `More.. (${group.projects.length - PROJECT_SIDEBAR_LIMIT})`}
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
               );
@@ -685,65 +761,22 @@ export default function Sidebar({ userRole }: SidebarProps) {
               onClick={() => setIsDropdownOpen(!isDropdownOpen)}
               className={`w-full flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-[var(--nav-hover-bg)] transition-all group cursor-pointer select-none ${isCollapsed ? "justify-center px-1" : ""}`}
             >
-              {currentAudioTrack ? (
-                <AgentAudioVisualizerRadial
-                  audioTrack={currentAudioTrack || undefined}
-                  state="speaking"
-                  size="icon" color="#6366f1"
-                >
-                  <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 flex items-center justify-center bg-gradient-to-br from-indigo-500 to-violet-600 text-white font-bold shadow-sm ring-2 ring-[var(--bg-surface)]">
-                    {user.avatar ? (
-                      <img 
-                        src={user.avatar} 
-                        alt="Avatar" 
-                        className="w-full h-full object-cover"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).style.display = 'none';
-                          (e.target as HTMLImageElement).parentElement!.classList.remove('p-0');
-                        }}
-                      />
-                    ) : (
-                      <span className="text-[11px]">{user.firstName?.charAt(0)}{user.lastName?.charAt(0)}</span>
-                    )}
-                  </div>
-                </AgentAudioVisualizerRadial>
-              ) : (
-                <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 flex items-center justify-center bg-gradient-to-br from-indigo-500 to-violet-600 text-white font-bold shadow-sm ring-2 ring-[var(--bg-surface)]">
-                  {user.avatar ? (
-                    <img 
-                      src={user.avatar} 
-                      alt="Avatar" 
-                      className="w-full h-full object-cover"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).style.display = 'none';
-                        (e.target as HTMLImageElement).parentElement!.classList.remove('p-0');
-                      }}
-                    />
-                  ) : (
-                    <span className="text-[11px]">{user.firstName?.charAt(0)}{user.lastName?.charAt(0)}</span>
-                  )}
-                </div>
-              )}
-              
-              {!isCollapsed && (
-                <>
-                  <div className="flex-1 min-w-0 text-left">
-                    <p className="text-[12px] font-medium text-[var(--text-primary)] truncate">{user.firstName} {user.lastName}</p>
-                    <p className="text-[10px] text-[var(--text-muted)] truncate">{user.email}</p>
-                  </div>
-                  <div className="flex items-center gap-1 flex-shrink-0">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); toggleTheme(); }}
-                      className="p-1 rounded-md hover:bg-[var(--bg-surface-3)] text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors"
-                      title={isDarkMode ? "Light mode" : "Dark mode"}
-                    >
-                      <i className={`${isDarkMode ? "pi pi-sun" : "pi pi-moon"} text-[12px]`} />
-                    </button>
-                    <i className={`pi pi-chevron-up text-[10px] text-[var(--text-muted)] transition-transform ${isDropdownOpen ? "rotate-180" : ""}`} />
-                  </div>
-                </>
-              )}
-            </div>
+              <svg width="20" height="20" viewBox="0 0 52 52" fill="none" className="flex-shrink-0" xmlns="http://www.w3.org/2000/svg"><path fillRule="evenodd" clipRule="evenodd" d="M46.0082 39.8551C46.2484 36.5877 46.5 31.3996 46.5 24c0 -7.3996 -0.2516 -12.5877 -0.4918 -15.85507 -0.2409 -3.27646 -2.7354 -5.85313 -6.0324 -6.13517C36.9912 1.75444 32.4092 1.5 26 1.5c-6.4091 0 -10.9912 0.25443 -13.9758 0.50975 -3.29701 0.28204 -5.79145 2.85871 -6.03236 6.13517 -0.03087 0.41981 -0.06193 0.87133 -0.09261 1.35517 -0.5222 0.00098 -0.99999 0.00954 -1.42534 0.02206 -1.56772 0.04612 -2.90677 1.08015 -2.96243 2.75495C1.50412 12.498 1.5 12.7385 1.5 13s0.00412 0.5019 0.01146 0.7229c0.05566 1.6747 1.3947 2.7088 2.96243 2.7549 0.34125 0.0101 0.71627 0.0176 1.12088 0.0207 -0.03294 1.2367 -0.05889 2.5703 -0.07524 4.0037 -0.37595 0.0034 -0.72564 0.0105 -1.04564 0.0199 -1.56772 0.0462 -2.90677 1.0802 -2.96243 2.755C1.50412 23.498 1.5 23.7385 1.5 24s0.00412 0.5019 0.01146 0.7229c0.05566 1.6747 1.3947 2.7088 2.96243 2.7549 0.32 0.0095 0.66969 0.0166 1.04563 0.02 0.01636 1.4334 0.04231 2.767 0.07525 4.0037 -0.40462 0.0031 -0.77963 0.0106 -1.12088 0.0206 -1.56772 0.0462 -2.90677 1.0802 -2.96243 2.755C1.50412 34.498 1.5 34.7385 1.5 35s0.00412 0.5019 0.01146 0.7229c0.05566 1.6747 1.3947 2.7088 2.96243 2.7549 0.42534 0.0125 0.90314 0.0211 1.42533 0.0221 0.03068 0.4838 0.06174 0.9353 0.0926 1.3552 0.24092 3.2764 2.73535 5.8531 6.03238 6.1351 2.9846 0.2553 7.5666 0.5098 13.9758 0.5098 6.4091 0 10.9912 -0.2544 13.9758 -0.5098 3.297 -0.282 5.7915 -2.8587 6.0324 -6.1351ZM32.0008 20c0 2.1338 -1.1139 4.0075 -2.792 5.0713 2.8422 1.0417 5.0176 3.4147 5.7294 6.3412 0.3117 1.2813 -0.4381 2.4986 -1.7132 2.8349 -1.4247 0.3759 -3.7315 0.7526 -7.2549 0.7526 -3.5233 0 -5.8302 -0.3767 -7.2549 -0.7526 -1.275 -0.3363 -2.0248 -1.5536 -1.7131 -2.8349 0.715 -2.9399 2.9071 -5.3212 5.7684 -6.3554 -1.6657 -1.0662 -2.7697 -2.9327 -2.7697 -5.0571 0 -3.3137 2.6863 -6 6 -6s6 2.6863 6 6Z" fill="currentColor"></path></svg>
+              <span className="text-[12px] font-medium text-[var(--text-primary)] truncate text-left flex-1">{team.teamName}</span>
+            </button>
+          ))}
+          {canToggleMoreTeams && (
+            <button
+              onClick={() => setShowAllTeams((prev) => !prev)}
+              className="w-full text-left px-2 py-1.5 text-[11px] font-medium text-[var(--text-primary)] hover:bg-[var(--bg-surface-2)] rounded-md transition-colors"
+            >
+              {showAllTeams ? "Show less" : "More.."}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
 
             {isDropdownOpen && (
               <div className={`absolute bottom-full mb-1 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] shadow-lg py-1 z-50 animate-fade-in
@@ -829,26 +862,208 @@ export default function Sidebar({ userRole }: SidebarProps) {
       <div className={`md:hidden fixed left-0 top-[52px] h-[calc(100vh-52px)] w-[260px] bg-[var(--sidebar-bg)] border-r border-[var(--border-subtle)] shadow-2xl transform transition-transform duration-300 z-50 overflow-hidden
         ${isMobileSidebarOpen ? "translate-x-0" : "-translate-x-full"}`}
       >
-        <SidebarContent onClose={() => setIsMobileSidebarOpen(false)} />
+        {/* Mobile Sidebar Content */}
+        <div className="flex-1 overflow-y-auto ck-scrollbar flex flex-col">
+          {/* Navigation Items */}
+          <div className="p-2 space-y-0.5">
+            {visibleNavItems.map((item) => (
+              <button
+                key={item.id}
+                onClick={() => {
+                  setActivePanel(item.id);
+                  if (item.href) navigateTo(item.href);
+                  setIsMobileSidebarOpen(false);
+                }}
+                className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md transition-colors text-[12px] ${(activePanel === item.id || (item.href && pathname === item.href))
+                  ? "bg-[var(--accent-light)] text-[var(--text-primary)] font-medium"
+                  : "text-[var(--text-secondary)] hover:bg-[var(--bg-surface-2)]"
+                  }`}
+              >
+                <span className="flex-shrink-0 w-4 h-4 flex items-center justify-center">{item.icon}</span>
+                <span className="truncate">{item.label}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* Divider */}
+          <div className="my-1.5 border-t border-[var(--border-subtle)]" />
+
+          {/* Quick Actions */}
+          <div className="px-2 py-1.5 space-y-1">
+            <div className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wide px-2">Recent</div>
+
+            {/* Channels Preview */}
+            {isMounted && channels.slice(0, 3).map((chan) => {
+              const channelId = ((chan as { id?: string; channelId?: string }).id || (chan as { id?: string; channelId?: string }).channelId || "").toLowerCase();
+              const isActive = pathname === `/dashboard/channels/${channelId}`;
+              return (
+                <button
+                  key={channelId || chan.name}
+                  onClick={() => {
+                    navigateTo(`/dashboard/channels/${channelId}`);
+                    setIsMobileSidebarOpen(false);
+                  }}
+                  className={`w-full flex items-center gap-2 px-2.5 py-1 rounded-md text-left transition-colors text-[11px] ${isActive
+                    ? "bg-[var(--accent-light)] text-[var(--text-primary)] font-medium"
+                    : "text-[var(--text-secondary)] hover:bg-[var(--bg-surface-2)]"
+                    }`}
+                >
+                  <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isActive ? "bg-[var(--accent)]" : "bg-[var(--border-subtle)]"}`} />
+                  <span className="truncate"># {chan.name}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Mobile Sidebar Footer */}
+        <div className="border-t border-[var(--border-subtle)] p-2 space-y-1.5 flex-shrink-0">
+          <button
+            onClick={() => {
+              toggleTheme();
+              setIsMobileSidebarOpen(false);
+            }}
+            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[var(--text-secondary)] hover:bg-[var(--bg-surface-2)] transition-colors text-[11px]"
+          >
+            {isDarkMode ? <SunIcon className="w-3.5 h-3.5" /> : <MoonIcon className="w-3.5 h-3.5" />}
+            <span className="font-medium truncate">{isDarkMode ? "Light" : "Dark"}</span>
+          </button>
+
+          {user && (
+            <div className="px-2 py-1.5 rounded-md bg-[var(--bg-surface-2)]">
+              <div className="flex items-center gap-1.5">
+                <div className="w-6 h-6 rounded-full bg-gray-600 text-white flex items-center justify-center text-[9px] font-bold flex-shrink-0">
+                  {user.firstName?.charAt(0)}{user.lastName?.charAt(0)}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[11px] font-medium text-[var(--text-primary)] truncate">{user.firstName}</p>
+                  <p className="text-[9px] text-[var(--text-muted)] truncate">{user.email}</p>
+                </div>
+              </div>
+              <div className="mt-1.5 flex gap-1 text-[10px]">
+                <button
+                  onClick={() => {
+                    openPasswordModal();
+                    setIsMobileSidebarOpen(false);
+                  }}
+                  className="flex-1 px-1.5 py-1 rounded border border-[var(--border-subtle)] hover:bg-[var(--bg-surface)] transition-colors truncate"
+                >
+                  Settings
+                </button>
+                <button
+                  onClick={() => {
+                    handleLogout();
+                    setIsMobileSidebarOpen(false);
+                  }}
+                  className="flex-1 px-1.5 py-1 rounded border border-red-500/30 text-red-500 hover:bg-red-500/10 transition-colors truncate"
+                >
+                  Logout
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* ── Desktop Sidebar ── */}
-      <aside
-        className={`hidden md:flex flex-col h-full bg-[var(--sidebar-bg)] border-r border-[var(--border-subtle)] transition-all duration-300 ease-in-out relative
-          ${isCollapsed ? "w-[72px]" : "w-[260px]"}
-        `}
-      >
-        <SidebarContent isCollapsed={isCollapsed} />
-        
-        {/* Collapse Toggle Button - Floating at edge */}
-        <button
-          onClick={() => setIsCollapsed(!isCollapsed)}
-          className="absolute -right-3 top-20 w-6 h-6 bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-full flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-primary)] shadow-md z-50 transition-all hover:scale-110 active:scale-95"
-          title={isCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
-        >
-          <i className={`pi ${isCollapsed ? "pi-chevron-right" : "pi-chevron-left"} text-[10px]`} />
-        </button>
-      </aside>
+      {/* ── Dual-column sidebar ── */}
+      <div className="hidden md:flex h-screen flex-shrink-0">
+
+        {/* Left icon rail — ClickUp dark strip */}
+        <div className="w-[56px] bg-[#1A1C22] flex flex-col items-center py-3 gap-1 flex-shrink-0 border-r border-[#2D2F38]">
+
+          {/* Workspace avatar */}
+          <button
+            className="w-8 h-8 rounded-lg bg-gradient-to-br from-red-500 to-indigo-600 flex items-center justify-center text-white text-[11px] font-bold mb-3 shadow-lg"
+            title={user ? `${user.firstName}'s Workspace` : "Workspace"}
+          >
+            {user?.firstName?.charAt(0) || "W"}
+          </button>
+
+          {/* Nav icons */}
+          <div className="flex flex-col items-center gap-0.5 flex-1 w-full px-1">
+            {visibleNavItems.map((item) => {
+              const isActive = activePanel === item.id || (item.href && pathname === item.href);
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    setActivePanel(item.id);
+                    if (item.href) navigateTo(item.href);
+                  }}
+                  title={item.label}
+                  className={`w-full flex flex-col items-center justify-center py-2 px-1 rounded-lg transition-all duration-150 group relative ${isActive
+                    ? "bg-white/10 text-white"
+                    : "text-gray-400 hover:text-white hover:bg-white/6"
+                    }`}
+                >
+                  <div className={`transition-transform group-hover:scale-110 ${isActive ? "text-white" : "text-gray-400"}`}>
+                    {item.icon}
+                  </div>
+                  <span className="text-[9px] font-medium mt-0.5 leading-none truncate w-full text-center">
+                    {item.label}
+                  </span>
+                  {/* Active indicator */}
+                  {isActive && (
+                    <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-6 bg-white rounded-r-full" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Bottom: theme + logout */}
+          <div className="flex flex-col items-center gap-2 mt-auto pb-1">
+            <button
+              onClick={toggleTheme}
+              className="p-2 rounded-lg hover:bg-white/8 text-gray-400 hover:text-white transition-all"
+              title={isDarkMode ? "Light mode" : "Dark mode"}
+            >
+              {isDarkMode ? <SunIcon className="w-4 h-4" /> : <MoonIcon className="w-4 h-4" />}
+            </button>
+            <button
+              onClick={handleLogout}
+              className="p-2 rounded-lg hover:bg-red-500/15 text-gray-400 hover:text-red-400 transition-all"
+              title="Logout"
+            >
+              <ArrowRightOnRectangleIcon className="w-4 h-4" />
+            </button>
+            {/* User avatar */}
+            {user && (
+              <div className="relative mt-1">
+                <div
+                  className="w-7 h-7 rounded-full bg-gray-600 text-white flex items-center justify-center text-[10px] font-bold cursor-pointer hover:ring-2 hover:ring-white/20 transition-all"
+                  title={`${user.firstName} ${user.lastName}`}
+                  onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                >
+                  {user.firstName?.charAt(0)}{user.lastName?.charAt(0)}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Right content panel */}
+        <div className="w-[220px] bg-[var(--bg-surface)] border-r border-[var(--border-subtle)] flex flex-col flex-shrink-0">
+          {/* Panel content */}
+          {renderPanel()}
+
+          {/* User profile at bottom */}
+          {user && (
+            <div className="border-t border-[var(--border-subtle)] p-2 flex-shrink-0">
+              <div className="relative" ref={dropdownRef}>
+                <button
+                  onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                  className="flex items-center gap-2 w-full p-2 rounded-lg hover:bg-[var(--bg-surface-2)] transition-all"
+                >
+                  <div className="flex h-6 w-6 items-center justify-center rounded-full bg-gray-700 text-white text-[9px] font-bold flex-shrink-0">
+                    {user.firstName?.charAt(0)}{user.lastName?.charAt(0)}
+                  </div>
+                  <div className="flex-1 text-left overflow-hidden">
+                    <p className="text-[11px] font-medium text-[var(--text-primary)] truncate">{user.firstName} {user.lastName}</p>
+                    <p className="text-[10px] text-[var(--text-muted)] truncate">{user.email}</p>
+                  </div>
+                  <ChevronDownIcon className={`w-3 h-3 text-[var(--text-muted)] transition-transform flex-shrink-0 ${isDropdownOpen ? "rotate-180" : ""}`} />
+                </button>
 
       {/* Global Tooltip for Collapsed Sidebar */}
       {isMounted && isCollapsed && (

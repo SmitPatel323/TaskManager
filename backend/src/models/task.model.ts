@@ -1,4 +1,4 @@
-import mongoose, { Schema, Document, Model, Types } from "mongoose";
+import mongoose, { Schema, Document, Model } from "mongoose";
 import type { DetailBlock } from "../shared/types/index.js";
 
 export type TaskStatus = "to-do" | "in-progress" | "completed";

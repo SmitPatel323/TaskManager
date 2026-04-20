@@ -162,14 +162,14 @@ export default function TasksClient() {
         <div className="flex items-center gap-3 sm:gap-6 mt-4 -mb-[1px] overflow-x-auto">
           <button
             onClick={() => setViewMode("list")}
-            className={`pb-3 text-[12px] sm:text-[13px] font-medium border-b-2 flex items-center gap-1.5 sm:gap-2 transition-colors whitespace-nowrap ${viewMode === 'list' ? 'border-[var(--accent)] text-[var(--accent)]' : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}`}
+            className={`pb-3 text-[12px] sm:text-[13px] font-medium border-b-2 flex items-center gap-1.5 sm:gap-2 transition-colors whitespace-nowrap ${viewMode === 'list' ? 'border-[var(--ck-blue)] text-[var(--text-primary)]' : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}`}
           >
             <i className="pi pi-list font-bold w-3 sm:w-4 h-3 sm:h-4 text-[12px] sm:text-[14px]" />
             List
           </button>
           <button
             onClick={() => setViewMode("board")}
-            className={`pb-3 text-[12px] sm:text-[13px] font-medium border-b-2 flex items-center gap-1.5 sm:gap-2 transition-colors whitespace-nowrap ${viewMode === 'board' ? 'border-[var(--accent)] text-[var(--accent)]' : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}`}
+            className={`pb-3 text-[12px] sm:text-[13px] font-medium border-b-2 flex items-center gap-1.5 sm:gap-2 transition-colors whitespace-nowrap ${viewMode === 'board' ? 'border-[var(--ck-blue)] text-[var(--text-primary)]' : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}`}
           >
             <i className="pi pi-th-large w-3 sm:w-4 h-3 sm:h-4 text-[12px] sm:text-[14px]" />
             Board
@@ -183,7 +183,7 @@ export default function TasksClient() {
           initialFilter={filterParam}
           projectFilter={projectParam}
           assignedToFilter={assignedToParam || undefined}
-          readOnly={!filterParam && !projectParam}
+          readOnly={false}
           viewMode={viewMode}
         />
       </div>

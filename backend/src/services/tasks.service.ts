@@ -1,6 +1,5 @@
 import mongoose from "mongoose";
 import { TaskModel } from "../models/task.model.js";
-import { EmailService } from "./email.service.js";
 import { InboxService } from "./inbox.service.js";
 import { emitTaskUpdate } from "../infrastructure/socket.js";
 import type { CreateTaskRequest, DetailBlock, TaskStatus } from "../shared/types/index.js";
@@ -27,12 +26,10 @@ function isValidStatus(value: unknown): value is TaskStatus {
 
 export class TasksService {
   private taskModel: TaskModel;
-  private emailService: EmailService;
   private inboxService: InboxService;
 
   constructor() {
     this.taskModel = new TaskModel();
-    this.emailService = new EmailService();
     this.inboxService = new InboxService();
   }
 
@@ -167,29 +164,6 @@ export class TasksService {
     }
 
     const result = await this.taskModel.create(taskData);
-
-    const assignedUserEmail = typeof assignedUser.email === "string" ? assignedUser.email : null;
-    const assignedUserName = [assignedUser.firstName, assignedUser.lastName].filter(Boolean).join(" ") || "there";
-    const assignedUserVerified = assignedUser.emailVerified === true;
-
-    if (assignedUserEmail && assignedUserVerified) {
-      try {
-        await this.emailService.sendTaskAssignedEmail({
-          to: assignedUserEmail,
-          recipientName: assignedUserName,
-          taskName: taskData.taskName,
-          details: cleanedDetails,
-          hours: taskData.hours,
-          status: taskData.status,
-          startDate,
-          dueDate,
-        });
-      } catch (error) {
-        console.error("Failed to send task assignment email:", error);
-      }
-    } else if (assignedUserEmail && !assignedUserVerified) {
-      console.warn("Skipping task assignment email for unverified user:", assignedUserEmail);
-    }
 
     // Create inbox notification for task assignment
     try {

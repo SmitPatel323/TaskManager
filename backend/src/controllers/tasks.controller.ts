@@ -85,7 +85,7 @@ export class TasksController {
       const limit = parseInt(req.query.limit as string) || 10;
       const allowedFilters = ["all", "created", "assigned"];
       const filter = (req.query.filter as string) || "all";
-      
+
       if (!allowedFilters.includes(filter)) {
         res.status(400).json({ error: "Invalid filter. Must be one of: all, created, assigned" });
         return;

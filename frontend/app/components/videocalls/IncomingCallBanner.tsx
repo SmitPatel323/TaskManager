@@ -5,32 +5,37 @@ import { useRouter, usePathname } from 'next/navigation';
 import { useSocket } from '../../providers/SocketProvider';
 import { videocallsApi } from '../../../src/api/videocalls.api';
 
+/* ─── GSAP ─── */
+let gsap: any = null;
+if (typeof window !== 'undefined') {
+  import('gsap').then((mod) => { gsap = mod.gsap ?? mod.default ?? mod; });
+}
+
 interface IncomingCall {
   callId: string;
   channelId: string;
   channelName: string;
   roomName: string;
-  initiator: {
-    id: string;
-    name: string;
-  };
+  initiator: { id: string; name: string };
   startedAt: string;
   type: 'voice' | 'video';
   recordingEnabled?: boolean;
 }
 
-/**
- * GlobalIncomingCallBanner
- *
- * Mounts once in the layout (outside any channel page) and listens on the
- * shared Socket for `channel:call-started` events.  When a call starts in
- * ANY channel the current user is a member of, this banner floats in the
- * bottom-right and lets them join or dismiss without navigating first.
- *
- * Navigating to the channel page is still required to JOIN the LiveKit room,
- * so clicking "Join" redirects to `/dashboard/channels/<channelId>?openCall=1`.
- * The channel page reads that query param and auto-opens the call UI.
- */
+function getInitials(name: string) {
+  return name.split(' ').map(p => p[0]).join('').toUpperCase().slice(0, 2);
+}
+
+const AVATAR_BG = ['#4338CA', '#0369A1', '#047857', '#B45309', '#7C3AED', '#B91C1C'];
+function avatarBg(name: string) {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff;
+  return AVATAR_BG[Math.abs(h) % AVATAR_BG.length];
+}
+
+/* ────────────────────────────────────────────────────────────────── */
+/*  GLOBAL INCOMING CALL BANNER                                       */
+/* ────────────────────────────────────────────────────────────────── */
 export function GlobalIncomingCallBanner() {
   const { socket, isConnected } = useSocket();
   const router = useRouter();
@@ -39,21 +44,17 @@ export function GlobalIncomingCallBanner() {
   const dismissTimers = useRef<Record<string, NodeJS.Timeout>>({});
 
   const dismiss = useCallback((channelId: string) => {
-    setCalls((prev) => prev.filter((c) => c.channelId !== channelId));
+    setCalls(prev => prev.filter(c => c.channelId !== channelId));
     if (dismissTimers.current[channelId]) {
       clearTimeout(dismissTimers.current[channelId]);
       delete dismissTimers.current[channelId];
     }
   }, []);
 
-  const handleJoin = useCallback(
-    (call: IncomingCall) => {
-      dismiss(call.channelId);
-      // Navigate to the channel page with openCall=1 and type
-      router.push(`/dashboard/channels/${call.channelId}?openCall=1&type=${call.type}`);
-    },
-    [dismiss, router]
-  );
+  const handleJoin = useCallback((call: IncomingCall) => {
+    dismiss(call.channelId);
+    router.push(`/dashboard/channels/${call.channelId}?openCall=1`);
+  }, [dismiss, router]);
 
   // Fetch all active calls on mount for persistence across refreshes
   useEffect(() => {
@@ -110,30 +111,16 @@ export function GlobalIncomingCallBanner() {
       type: 'voice' | 'video';
       recordingEnabled?: boolean;
     }) => {
-      // Don't show banner if the current user initiated the call
       let currentUserId = null;
       try {
         const userJson = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
-        if (userJson) {
-           currentUserId = JSON.parse(userJson).userId;
-        }
-      } catch (e) {
-        // Ignore parse errors
-      }
+        if (userJson) currentUserId = JSON.parse(userJson).userId;
+      } catch (_) {}
+      if (currentUserId && data.initiator.id === currentUserId) return;
 
-      if (currentUserId && data.initiator.id === currentUserId) {
-        return;
-      }
-
-      // Don't add a duplicate banner for the same channel
-      setCalls((prev) => {
-        if (prev.some((c) => c.channelId === data.channelId)) return prev;
-
-        const channelName =
-          data.channelId
-            .replace(/-/g, ' ')
-            .replace(/\b\w/g, (l) => l.toUpperCase());
-
+      setCalls(prev => {
+        if (prev.some(c => c.channelId === data.channelId)) return prev;
+        const channelName = data.channelId.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
         const newCall: IncomingCall = {
           callId: data.callId,
           channelId: data.channelId,
@@ -144,38 +131,27 @@ export function GlobalIncomingCallBanner() {
           type: data.type || 'video',
           recordingEnabled: data.recordingEnabled,
         };
-
-        /* 
-        // Auto-dismiss after 30 seconds - disabled for persistence
         dismissTimers.current[data.channelId] = setTimeout(() => {
-          setCalls((p) => p.filter((c) => c.channelId !== data.channelId));
+          setCalls(p => p.filter(c => c.channelId !== data.channelId));
           delete dismissTimers.current[data.channelId];
-        }, 30000); 
-        */
-
+        }, 30000);
         return [...prev, newCall];
       });
     };
 
-    const handleCallEnded = (data: { channelId: string }) => {
-      dismiss(data.channelId);
-    };
+    const handleCallEnded = (data: { channelId: string }) => dismiss(data.channelId);
 
     socket.on('channel:call-started', handleCallStarted);
     socket.on('channel:call-ended', handleCallEnded);
-
     return () => {
       socket.off('channel:call-started', handleCallStarted);
       socket.off('channel:call-ended', handleCallEnded);
     };
   }, [socket, isConnected, dismiss]);
 
-  // Cleanup all timers on unmount
   useEffect(() => {
     const timers = dismissTimers.current;
-    return () => {
-      Object.values(timers).forEach(clearTimeout);
-    };
+    return () => { Object.values(timers).forEach(clearTimeout); };
   }, []);
 
   // Extract current channel from pathname (e.g., /dashboard/channels/general -> general)
@@ -187,19 +163,25 @@ export function GlobalIncomingCallBanner() {
   if (filteredCalls.length === 0) return null;
 
   return (
-    <div className="fixed bottom-6 right-6 z-[9999] flex flex-col gap-3 pointer-events-none">
-      {filteredCalls.map((call) => (
-        <CallNotification
-          key={call.channelId}
-          call={call}
-          onJoin={() => handleJoin(call)}
-          onDismiss={() => dismiss(call.channelId)}
-        />
-      ))}
-    </div>
+    <>
+      <style>{bannerStyles}</style>
+      <div className="vcb-stack">
+        {calls.map(call => (
+          <CallNotification
+            key={call.channelId}
+            call={call}
+            onJoin={() => handleJoin(call)}
+            onDismiss={() => dismiss(call.channelId)}
+          />
+        ))}
+      </div>
+    </>
   );
 }
 
+/* ────────────────────────────────────────────────────────────────── */
+/*  SINGLE NOTIFICATION CARD                                          */
+/* ────────────────────────────────────────────────────────────────── */
 function CallNotification({
   call,
   onJoin,
@@ -209,73 +191,245 @@ function CallNotification({
   onJoin: () => void;
   onDismiss: () => void;
 }) {
+  const cardRef = useRef<HTMLDivElement>(null);
+  const [progress, setProgress] = useState(100);
+
+  /* GSAP slide-in */
+  useEffect(() => {
+    if (!cardRef.current || !gsap) return;
+    gsap.fromTo(cardRef.current,
+      { opacity: 0, x: 60, scale: 0.95 },
+      { opacity: 1, x: 0, scale: 1, duration: 0.32, ease: 'power2.out' }
+    );
+  }, []);
+
+  /* Countdown progress (30s) */
+  useEffect(() => {
+    const totalMs = 30000;
+    const steps = 150;
+    const stepMs = totalMs / steps;
+    let remaining = steps;
+    const t = setInterval(() => {
+      remaining--;
+      setProgress((remaining / steps) * 100);
+      if (remaining <= 0) clearInterval(t);
+    }, stepMs);
+    return () => clearInterval(t);
+  }, []);
+
+  const initials = getInitials(call.initiator.name);
+  const bg = avatarBg(call.initiator.name);
+
   return (
-    <div
-      className="pointer-events-auto flex flex-col gap-3 px-4 py-4 rounded-2xl shadow-2xl border backdrop-blur-md animate-toast-in"
-      style={{
-        background: 'rgba(15, 23, 42, 0.95)',
-        borderColor: 'rgba(99, 102, 241, 0.5)',
-        minWidth: '300px',
-        maxWidth: '360px',
-      }}
-    >
-      {/* Header */}
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-3">
-          {/* Animated ring icon */}
-          <div className="relative flex-shrink-0">
-            <div className={`w-10 h-10 rounded-full ${call.type === 'voice' ? 'bg-indigo-500/20' : 'bg-rose-500/20'} flex items-center justify-center`}>
-              <span className="text-xl">{call.type === 'voice' ? '📞' : '📹'}</span>
-            </div>
-            <span className={`absolute -top-1 -right-1 w-3 h-3 ${call.type === 'voice' ? 'bg-green-400' : 'bg-red-400'} rounded-full border-2 border-slate-900 animate-pulse`} />
-          </div>
-          {/* Info */}
-          <div>
-            <p className="text-[13px] font-semibold text-white leading-tight">
-              Incoming {call.type === 'voice' ? 'voice' : 'video'} call
-            </p>
-            <p className="text-[11px] text-slate-400 mt-0.5">
-              <span className="text-indigo-300 font-medium">{call.initiator.name}</span> started a {call.type} call
-            </p>
-          </div>
+    <div ref={cardRef} className="vcb-card">
+      {/* Countdown progress line */}
+      <div className="vcb-progress-bar">
+        <div className="vcb-progress-fill" style={{ width: `${progress}%` }} />
+      </div>
+
+      {/* Main content */}
+      <div className="vcb-row">
+        {/* Avatar */}
+        <div className="vcb-avatar" style={{ background: bg }}>
+          {initials}
+        </div>
+
+        {/* Info */}
+        <div className="vcb-info">
+          <p className="vcb-label">Incoming call</p>
+          <p className="vcb-name">{call.initiator.name}</p>
+          <p className="vcb-channel">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 11, height: 11, flexShrink: 0 }}>
+              <path d="M4 9h16M4 15h16M10 3L8 21M16 3l-2 18" />
+            </svg>
+            {call.channelName}
+          </p>
         </div>
 
         {/* Dismiss ✕ */}
-        <button
-          onClick={onDismiss}
-          className="text-slate-500 hover:text-white transition-colors mt-0.5 flex-shrink-0"
-          title="Dismiss"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+        <button className="vcb-x" onClick={onDismiss} title="Dismiss">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" style={{ width: 12, height: 12 }}>
+            <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
           </svg>
         </button>
       </div>
 
-      {/* Action buttons */}
-      <div className="flex gap-2">
-        <button
-          onClick={onJoin}
-          className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-[12px] font-semibold text-white transition-all"
-          style={{ background: 'rgba(99, 102, 241, 0.9)' }}
-          onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(99, 102, 241, 1)')}
-          onMouseLeave={(e) => (e.currentTarget.style.background = 'rgba(99, 102, 241, 0.9)')}
-        >
-          <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
-            <path d="M15.5 6.5A5.5 5.5 0 0 1 21 12a5.5 5.5 0 0 1-5.5 5.5c-.34 0-.67-.03-1-.09V15.1c.32.06.66.1 1 .1a3.5 3.5 0 0 0 0-7c-.34 0-.68.04-1 .1V6.59c.33-.06.66-.09 1-.09M3 7l9 9-9 9V7z" />
+      {/* Actions */}
+      <div className="vcb-actions">
+        <button className="vcb-btn vcb-btn--decline" onClick={onDismiss}>
+          Decline
+        </button>
+        <button className="vcb-btn vcb-btn--join" onClick={onJoin}>
+          <svg viewBox="0 0 24 24" fill="currentColor" style={{ width: 13, height: 13 }}>
+            <path d="M17 10.5V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3.5l4 4v-11l-4 4z" />
           </svg>
           Join Call
-        </button>
-        <button
-          onClick={onDismiss}
-          className="flex-1 flex items-center justify-center py-2 px-3 rounded-lg text-[12px] font-semibold text-slate-400 hover:text-white transition-colors"
-          style={{ background: 'rgba(255,255,255,0.05)' }}
-          onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.1)')}
-          onMouseLeave={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
-        >
-          Dismiss
         </button>
       </div>
     </div>
   );
 }
+
+/* ────────────────────────────────────────────────────────────────── */
+/*  STYLES — match app design system                                  */
+/* ────────────────────────────────────────────────────────────────── */
+const bannerStyles = `
+.vcb-stack {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+  font-family: var(--font-inter), -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+  font-size: 13px;
+}
+
+/* ── Card — matches the app's toast style ── */
+.vcb-card {
+  pointer-events: auto;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 14px 12px;
+  width: 300px;
+  background: var(--bg-canvas);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-soft-lg);
+  overflow: hidden;
+  /* matches app's animate-toast-in */
+  animation: vcb-toast-in 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes vcb-toast-in {
+  from { opacity: 0; transform: translateX(20px) scale(0.96); }
+  to   { opacity: 1; transform: translateX(0) scale(1); }
+}
+
+/* ── Progress bar ── */
+.vcb-progress-bar {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: var(--bg-surface-2);
+}
+.vcb-progress-fill {
+  height: 100%;
+  background: var(--ck-blue);
+  transition: width 0.2s linear;
+  border-radius: 0 1px 1px 0;
+}
+
+/* ── Row ── */
+.vcb-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+/* ── Avatar ── */
+.vcb-avatar {
+  width: 38px; height: 38px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: 0.02em;
+}
+
+/* ── Info ── */
+.vcb-info {
+  flex: 1;
+  min-width: 0;
+}
+.vcb-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ck-blue);
+  margin: 0 0 2px;
+}
+.vcb-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vcb-channel {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin: 0;
+  font-weight: 500;
+}
+
+/* ── Dismiss button ── */
+.vcb-x {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 3px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s, background 0.15s;
+  flex-shrink: 0;
+}
+.vcb-x:hover { color: var(--text-primary); background: var(--bg-surface-2); }
+
+/* ── Action buttons ── */
+.vcb-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+}
+.vcb-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 7px 12px;
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  line-height: 1;
+}
+
+.vcb-btn--decline {
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+}
+.vcb-btn--decline:hover {
+  background: rgba(224, 58, 58, 0.08);
+  border-color: rgba(224, 58, 58, 0.25);
+  color: var(--status-error);
+}
+
+.vcb-btn--join {
+  background: var(--ck-blue);
+  border: 1px solid transparent;
+  color: #fff;
+}
+.vcb-btn--join:hover { opacity: 0.88; }
+.vcb-btn--join:active { transform: scale(0.97); }
+`;

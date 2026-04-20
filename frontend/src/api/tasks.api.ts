@@ -6,14 +6,14 @@ export const tasksApi = {
     const response = await api.post("/tasks", data);
     return response.data;
   },
-  
+
   getTasks: async (page: number = 1, limit: number = 10, filter: string = "all") => {
     const response = await api.get<GetTasksResponse>("/tasks", {
       params: { page, limit, filter }
     });
     return response.data;
   },
-  
+
   getTaskDetails: async (id: string) => {
     const response = await api.get<TaskDetailsResponse>(`/tasks/${id}/details`);
     return response.data;

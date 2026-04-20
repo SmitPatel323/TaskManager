@@ -1,5 +1,4 @@
 import { CallHistoryModel } from '../models/callHistory.model.js';
-import { ENV } from '../config/env.js';
 
 const CLEANUP_INTERVAL = 24 * 60 * 60 * 1000; // Run once per day
 const CALL_HISTORY_RETENTION_DAYS = parseInt(process.env.CALL_HISTORY_RETENTION_DAYS || '90', 10);
@@ -73,11 +72,13 @@ export async function cleanupOldCallHistory() {
 export async function getCallHistoryStats() {
     try {
         const totalRecords = await CallHistoryModel.countDocuments();
-        const totalSize = await CallHistoryModel.collection.stats();
+        // Estimate storage based on sample document size
+        const sampleRecord = await CallHistoryModel.findOne().lean();
+        const estimatedSize = sampleRecord ? totalRecords * JSON.stringify(sampleRecord).length : 0;
 
         return {
             totalRecords,
-            storageSizeBytes: totalSize.size,
+            storageSizeBytes: estimatedSize,
             retentionDays: CALL_HISTORY_RETENTION_DAYS,
         };
     } catch (error) {

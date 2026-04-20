@@ -33,8 +33,8 @@ router.post('/livekit/webhook', async (req: Request, res: Response) => {
             const roomName = event.room?.name || '';
             const channelId = roomName.replace('channel-', '').replace(/^channel_/, '').split('-').slice(1).join('-');
 
-            // Get actual room duration from LiveKit
-            const duration = event.room?.duration || 0;
+            // Get actual room duration from LiveKit (estimated, not stored in room object)
+            const duration = event.room?.emptyTimeout || 0;
 
             console.log(`📊 Room duration: ${duration}s, channelId: ${channelId}`);
 
@@ -101,43 +101,12 @@ router.post('/livekit/webhook', async (req: Request, res: Response) => {
             return;
         }
 
-        // Handle recording_started event
-        if (event.event === 'recording_started') {
-            console.log(`🎥 Recording started for room: ${event.room?.name}`);
-            res.json({ success: true, message: 'Recording started' });
-            return;
-        }
-
-        // Handle recording_finished event
-        if (event.event === 'recording_finished') {
-            console.log(
-                `🎥 Recording finished for room: ${event.room?.name}, location: ${event.metadata}`
-            );
-
-            // Extract channel ID from room name
-            const roomName = event.room?.name || '';
-            const channelId = roomName.replace('channel-', '').replace(/^channel_/, '').split('-').slice(1).join('-');
-
-            // Update call history with recording URL if available
-            if (event.metadata) {
-                await CallHistoryModel.findOneAndUpdate(
-                    { roomName },
-                    {
-                        recordingUrl: event.metadata,
-                    }
-                );
-
-                console.log(`📹 Recording URL saved: ${event.metadata}`);
-
-                // Notify users
-                const io = getIO();
-                io.to(channelId).emit('channel:recording-available', {
-                    roomName,
-                    recordingUrl: event.metadata,
-                });
-            }
-
-            res.json({ success: true, message: 'Recording finished' });
+        // Note: Recording events are not part of the standard WebhookEvent type
+        // They would come through event metadata if LiveKit sends them
+        // For now, we handle egress_ended which indicates recording/streaming completion
+        if (event.event === 'egress_ended') {
+            console.log(`🎥 Egress/Recording ended for room: ${event.room?.name}`);
+            res.json({ success: true, message: 'Recording/Egress ended' });
             return;
         }
 

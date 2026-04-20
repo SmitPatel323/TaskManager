@@ -3,7 +3,6 @@ import { ENV } from './env.js';
 
 let redisInstance: Redis | null = null;
 let redisSubscriberInstance: Redis | null = null;
-let redisInitialized = false;
 
 // Parse Redis URL to extract connection options
 const parseRedisUrl = (url: string) => {
